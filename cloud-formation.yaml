@@ -1,0 +1,1632 @@
+#create basic cloudformation template
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'A2I CloudFormation Template'
+
+Parameters:
+  A2IWorkforceARN:
+    Type: String
+    Description: 'Workforce ARN'
+  LambdaLayerARN:
+    Type: String
+    Description: 'Lambda Layer Version ARN'
+
+Resources:
+#Lambda function to create human loop with inline code 
+  A2ILambdaCreateUI:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Handler: 'index.handler'
+      FunctionName: !Sub ${AWS::StackName}-cf-a2i-create-ui
+      Role: !GetAtt CustomResoureceLambda.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          sagemaker= boto3.client('sagemaker')
+          task_template="""
+              <script src="https://assets.crowd.aws/crowd-html-elements.js"></script>
+              {% capture s3_uri %}s3://{{ task.input.aiServiceRequest.document.s3Object.bucket }}/{{ task.input.aiServiceRequest.document.s3Object.name }}{% endcapture %}
+              {% capture s3_s1_uri %}s3://{{ task.input.aiServiceRequest.document.s3Object.bucket }}/{{ task.input.aiServiceRequest.document.s3Object.sample1Name }}{% endcapture %}
+              {% capture s3_s2_uri %}s3://{{ task.input.aiServiceRequest.document.s3Object.bucket }}/{{ task.input.aiServiceRequest.document.s3Object.sample2Name }}{% endcapture %}
+
+              <div style="display: flex; flex-basis: 20%">
+                  <div style="flex: 1; padding: 20px; background-color: #f1f1f1; border: 1px solid #ddd;">
+                      <img src="{{ s3_s1_uri | grant_read_access }}" width="50%">
+                  </div>
+                  <div style="flex: 1; padding: 20px; background-color: #f1f1f1; border: 1px solid #ddd;">
+                      <img src="{{ s3_s2_uri | grant_read_access }}" width="50%">
+                  </div>
+              </div>
+              <div style="padding: 20px; background-color: #f1f1f1; border: 1px solid #ddd;">
+              <crowd-form>
+                <crowd-textract-analyze-document src="{{ s3_uri | grant_read_access }}" initial-value="{{ task.input.selectedAiServiceResponse.blocks }}" header="Review the key-value pairs listed on the right and correct them if they don't match the following document." no-key-edit="" no-geometry-edit="" keys="{{ task.input.humanLoopContext.importantFormKeys }}" block-types="['KEY_VALUE_SET']">
+
+                <short-instructions header="Instructions">
+                  <p>Verify if the image is symilar to one of the two images extracted from the Knowledge base displayed at the top of the page. If not, fill in the Add To Knowledge Base with Yes. </p>  
+                  <p><br></p>    
+                  <p>Click on a key-value block to highlight the corresponding key-value pair in the document.</p>
+                  <p><br></p>
+                  <p>If it is a valid key-value pair, review the content for the value. If the content is incorrect, correct it.</p>
+                  <p><br></p>
+                  <p>If the text of the value is incorrect, correct it.</p>
+                  <p><img src="https://assets.crowd.aws/images/a2i-console/correct-value-text.png" width="100%"></p>
+                  <p><br></p>
+                  <p>If a wrong value is identified, correct it.</p>
+                  <p><img src="https://assets.crowd.aws/images/a2i-console/correct-value.png" width="100%"></p>
+                  <p><br></p>
+                  <p>If it is not a valid key-value relationship, choose <strong>No</strong>.</p>
+                  <p><img src="https://assets.crowd.aws/images/a2i-console/not-a-key-value-pair.png" width="100%"></p>
+                  <p><br></p>
+                  <p>If you can’t find the key in the document, choose <strong>Key not found</strong>.</p>
+                  <p><img src="https://assets.crowd.aws/images/a2i-console/key-is-not-found.png" width="100%"></p>
+                  <p><br></p>
+                  <p>If the content of a field is empty, choose <strong>Value is blank</strong>.</p>
+                  <p><img src="https://assets.crowd.aws/images/a2i-console/value-is-blank.png" width="100%"></p>
+                  <p><br></p>
+                  <p><strong>Examples</strong></p>
+                  <p>The key and value are often displayed next or below to each other.</p>
+                  <p><br></p>
+                  <p>For example, key and value displayed in one line.</p>
+                  <p><img src="https://assets.crowd.aws/images/a2i-console/sample-key-value-pair-1.png" width="100%"></p>
+                  <p><br></p>
+                  <p>For example, key and value displayed in two lines.</p>
+                  <p><img src="https://assets.crowd.aws/images/a2i-console/sample-key-value-pair-2.png" width="100%"></p>
+                  <p><br></p>
+                  <p>If the content of the value has multiple lines, enter all the text without a line break. Include all value text, even if it extends beyond the highlighted box.</p>
+                  <p><img src="https://assets.crowd.aws/images/a2i-console/multiple-lines.png" width="100%"></p></short-instructions>
+                  <full-instructions header="Instructions"></full-instructions>
+                </crowd-textract-analyze-document>
+              </crowd-form>
+              </div>
+          """
+          def handler(event, context):
+              print('Received event:', event)
+              if event['RequestType']=='Create':
+                work_team_arn= event['ResourceProperties']['WorkteamArn']
+                role_arn= event['ResourceProperties']['WorkforceRoleArn']
+                print ("Creating", event['ResourceProperties']['HumanTaskUiName'])
+                response_create_task_ui = sagemaker.create_human_task_ui(
+                        HumanTaskUiName=event['ResourceProperties']['HumanTaskUiName'],
+                        UiTemplate={'Content': task_template})
+
+                create_workflow_definition_response = sagemaker.create_flow_definition(
+                          FlowDefinitionName= event['ResourceProperties']['FlowDefinitionName'],
+                          RoleArn= role_arn,
+                          HumanLoopConfig= {
+                              "WorkteamArn": work_team_arn,
+                              "HumanTaskUiArn": response_create_task_ui['HumanTaskUiArn'],
+                              "TaskCount": 1,
+                              "TaskDescription": "Verify if the image shall be used to update the knowledge base.",
+                              "TaskTitle": "Update knwoledge base"
+                          },
+                          OutputConfig={
+                              "S3OutputPath" : event['ResourceProperties']['S3OutputPath']
+                          }
+                      )
+                print ("create_workflow_definition_response",create_workflow_definition_response)
+                
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, create_workflow_definition_response['FlowDefinitionArn'])
+              elif event['RequestType']=='Delete':
+                print ("Deleting", event['ResourceProperties']['HumanTaskUiName'])
+                try:
+                    response_delete_task_ui=sagemaker.delete_human_task_ui (HumanTaskUiName=event['ResourceProperties']['HumanTaskUiName'])
+                    print ("Delete result", response_delete_task_ui)
+
+                    response_delete_flow=sagemaker.delete_flow_definition (FlowDefinitionName=event['ResourceProperties']['FlowDefinitionName'])
+                    print ("Delete result", response_delete_flow)
+                except:
+                    print ("trapping exception")
+                    
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, {})
+              else:
+                cfnresponse.send(event, context, cfnresponse.ERROR, {}, {})
+      Runtime: 'python3.9'
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          REGION: !Ref 'AWS::Region'
+
+  A2IUI:
+      Type: 'Custom::A2IUI'
+      Properties:
+        ServiceToken: !GetAtt A2ILambdaCreateUI.Arn
+        HumanTaskUiName: !Sub ${AWS::StackName}-task-name
+        WorkteamArn: !Ref A2IWorkforceARN
+        WorkforceRoleArn: !GetAtt A2IWorkforceRole.Arn
+        FlowDefinitionName: !Sub ${AWS::StackName}-workflow-name
+        S3OutputPath: !Sub 's3://${S3Bucket}/backend/A2I/' 
+
+      
+  A2IWorkforceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: "/service-role/"
+      RoleName: !Sub ${AWS::StackName}-a2i-workforce-role
+      AssumeRolePolicyDocument: !Sub |
+        {
+            "Version":"2012-10-17",
+            "Statement":[
+                {"Effect":"Allow",
+                 "Principal":{"Service":"sagemaker.amazonaws.com"},
+                 "Action":"sts:AssumeRole"
+                 }
+                 ]        
+        }
+      MaxSessionDuration: 3600
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-a2i-bucket-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 
+                - s3:ListBucket
+                - s3:PutObject
+                - s3:GetObject
+                Resource: 
+                - !GetAtt S3Bucket.Arn
+                - !Sub ${S3Bucket.Arn}/*
+      Description: Allows A2I work on S3
+
+  CustomResoureceLambda:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: "/"
+      RoleName: !Sub ${AWS::StackName}-custom-resource-role
+      AssumeRolePolicyDocument: !Sub |
+        {
+            "Version":"2012-10-17",
+            "Statement":[
+                {"Effect":"Allow",
+                 "Principal":{"Service":"lambda.amazonaws.com"},
+                 "Action":"sts:AssumeRole"
+                 }
+                 ]        
+        }
+      MaxSessionDuration: 3600
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-custom-resource-execute-anything
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 
+                - 'logs:CreateLogGroup'
+                - 'logs:CreateLogStream'
+                - 'logs:PutLogEvents'
+                Resource: 'arn:aws:logs:*:*:*'
+              - Effect: Allow
+                Action: 
+                - 'sagemaker:DeleteHumanTaskUi'
+                - 'sagemaker:DeleteFlowdefinition'
+                - 'sagemaker:CreateFlowDefinition'
+                - 'sagemaker:CreateHumanTaskUi'
+                Resource: '*'
+              - Effect: Allow
+                Action: 
+                - 'iam:PassRole'
+                Resource: !GetAtt A2IWorkforceRole.Arn
+      Description: Allows Lambda log and call anything
+
+  DynamoDBInventoryTable:
+      Type: "AWS::DynamoDB::Table"
+      Properties:
+          AttributeDefinitions: 
+            - 
+              AttributeName: "key"
+              AttributeType: "S"
+          BillingMode: "PAY_PER_REQUEST"
+          TableName: !Sub ${AWS::StackName}-INVENTORY_TABLE
+          KeySchema: 
+            - 
+              AttributeName: "key"
+              KeyType: "HASH"
+
+  S3Bucket:
+      Type: "AWS::S3::Bucket"
+      Properties:
+          CorsConfiguration:
+            CorsRules:
+              - AllowedHeaders:
+                  - '*'
+                AllowedMethods:
+                  - GET
+                  - HEAD
+                  - PUT
+                  - POST
+                  - DELETE
+                AllowedOrigins:
+                  - '*'
+                ExposedHeaders:
+                  - x-amz-server-side-encryption
+                  - x-amz-request-id
+                  - x-amz-id-2
+                  - ETag
+                Id: myCORSRuleId1
+                MaxAge: 3600
+              - AllowedHeaders:
+                  - ''
+                AllowedMethods:
+                  - GET
+                AllowedOrigins:
+                  - '*'
+                ExposedHeaders:
+                  - Access-Control-Allow-Origin
+                Id: myCORSRuleId2
+                MaxAge: 3600      
+
+ 
+  SQSQueue:
+      Type: "AWS::SQS::Queue"
+      Properties:
+          DelaySeconds: "0"
+          MaximumMessageSize: "262144"
+          MessageRetentionPeriod: "345600"
+          ReceiveMessageWaitTimeSeconds: "0"
+          VisibilityTimeout: "30"
+          QueueName: !Sub ${AWS::StackName}-kb-update
+          
+  EventsRule:
+      Type: "AWS::Events::Rule"
+      Properties:
+          Name: !Sub ${AWS::StackName}-workflow-completion
+          EventPattern: !Sub "{\"source\":[\"aws.sagemaker\"],\"detail-type\":[\"SageMaker A2I HumanLoop Status Change\"]},\"detail\": {\"flowDefinitionArn\": [\"${A2IUI}\"]}"
+          State: "ENABLED"
+          Targets: 
+            - 
+              Arn: !GetAtt A2ILambdaPostProcess.Arn
+              Id: !Sub ${AWS::StackName}-lambda-target
+          EventBusName: "default"   
+          
+  PermissionForEventsToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: !Ref A2ILambdaPostProcess
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt EventsRule.Arn    
+      
+  LambdaProcessSQSMessages:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 10
+      EventSourceArn: !GetAtt SQSQueue.Arn   
+      FunctionName: !GetAtt LambdaUpdateKB.Arn
+      
+
+  A2ILambdaPostProcess:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-a2i-post-process
+      Handler: 'index.lambda_handler'
+      Role: !GetAtt A2IApplicationLambda.Arn
+      Environment: 
+        Variables: 
+          SQS_QUEUE_URL: !GetAtt SQSQueue.QueueUrl
+          INVENTORY_TABLE: !Sub ${AWS::StackName}-INVENTORY_TABLE
+      Code:
+        ZipFile: |
+            import json
+            import boto3
+            import os
+            import logging
+
+            logger = logging.getLogger()
+            logger.setLevel(logging.DEBUG)
+
+            #Environment Variables
+            INVENTORY_TABLE=os.environ['INVENTORY_TABLE']
+            SQS_QUEUE_URL=os.environ['SQS_QUEUE_URL']
+
+            #AWS Services
+            s3 = boto3.client('s3')
+            sqs = boto3.client('sqs')
+            dynamodb = boto3.resource('dynamodb')
+            inventory_table = dynamodb.Table(INVENTORY_TABLE)
+
+            def update_inventory(inputDataUser):
+                logger.debug ("Update Inventory")
+                inventory_table.put_item (
+                    Item={
+                        'key':f"{inputDataUser['Manufacturer']}--{inputDataUser['Model']}--{inputDataUser['SerialN']}",
+                        'data':inputDataUser
+                        }
+                    )
+
+                return
+
+
+            def read_a2i_job_output_info(s3Uri):
+                bucket_name=s3Uri.split('/')[2]
+                key="/".join (s3Uri.split('/')[3:])
+                s3_object = s3.get_object(Bucket=bucket_name, Key=key)
+                body = s3_object['Body']
+                return (json.loads(body.read()))
+
+            def get_block_by_key(key_name,blocks):
+                for block in blocks:
+                    if block['blockType']=='WORD' and block['text']==key_name:
+                        return block
+                return None
+
+            def get_block_value(input_block,blocks):
+                for block in blocks:
+                    if  block['blockType']=='KEY_VALUE_SET' and block['entityTypes'][0]=='KEY':
+                        for relationship in block['relationships']:
+                            if relationship['type']=='CHILD' and relationship['ids'][0]==input_block['id']:
+                                for relationship in block['relationships']:
+                                    if relationship['type']=='VALUE':
+                                        return (relationship['ids'][0])
+                return None
+
+            def get_value_for_block(id,blocks):
+                for block in blocks:
+                    if block['id']==id:
+                        for value_block in blocks:
+                            if value_block['id']==block['relationships'][0]['ids'][0]:
+                                return (value_block['text'])
+                return None
+
+            def get_value_for_key(id, blocks):
+                input_block=get_block_by_key(id,blocks)
+                output_block=get_block_value(input_block,blocks)
+                return get_value_for_block(output_block,blocks)
+
+
+            def lambda_handler(event, context):
+                logger.debug ("Input Event: ")
+                logger.debug (event )
+
+                if event['detail']['humanLoopStatus']=='Completed':
+                    #Read Job Info
+
+                    jobOutput=read_a2i_job_output_info(event['detail']['humanLoopOutput']['outputS3Uri'])
+                    blocks=jobOutput['humanAnswers'][0]['answerContent']['AWS/Textract/AnalyzeDocument/Forms/V1']['blocks']
+
+                    addToKB=get_value_for_key('Add To Knwoledge Base',blocks)
+                    inputDataUser={
+                        'Manufacturer':get_value_for_key('Manufacturer',blocks),
+                        'Model' : get_value_for_key('Model',blocks),
+                        'SerialN' : get_value_for_key('SerialN',blocks)
+                    }
+
+                    if addToKB.lower() == 'no':
+                        #Store data on Inventory Database
+                        logger.debug ("Adding to Inventory Database")
+                        print ('Adding to DB ',inputDataUser)
+                        update_inventory(inputDataUser)
+
+                    else:
+                        #Store data on Inventory Database
+                        logger.debug ("Adding to Inventory Database")
+                        print ('Adding to DB ',inputDataUser)
+                        update_inventory(inputDataUser)
+
+                        #Submit data to an SQS Queue to update KB
+                        logger.debug ("Submitting to SQS")
+                        print ('submitting to SQS', inputDataUser)
+                        s3Object=jobOutput['inputContent']['aiServiceRequest']['document']['s3Object']
+
+                        response = sqs.send_message(
+                            QueueUrl=SQS_QUEUE_URL,
+                            DelaySeconds=0,
+                            MessageBody=(json.dumps(
+                                {            
+                                    'file_name': f"s3://{s3Object['bucket']}/{s3Object['name']}",
+                                    'response': inputDataUser
+                                })
+                            )
+                        )
+
+
+                return {
+                    'statusCode': 200,
+                    'body': json.dumps('Successfully completed.')
+                }
+      Runtime: 'python3.9'
+      Timeout: 30
+      MemorySize: 128
+
+  LambdaValidateInputData:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-validate-input-data
+      Handler: 'index.lambda_handler'
+      Role: !GetAtt A2IApplicationLambda.Arn
+      Environment: 
+        Variables: 
+          A2I_WORKFLOW_ARN: !Ref A2IUI
+          INVENTORY_TABLE: !Sub ${AWS::StackName}-INVENTORY_TABLE
+          THRESHOLD: 0.8
+      Code:
+        ZipFile: |
+            import json
+            import os 
+            import boto3
+            import uuid
+            from difflib import SequenceMatcher
+            import uuid
+
+            import logging
+
+            logger = logging.getLogger()
+            logger.setLevel(logging.DEBUG)
+
+
+
+            #Environment Variables
+            THRESHOLD=float(os.environ ['THRESHOLD'])
+            INVENTORY_TABLE=os.environ['INVENTORY_TABLE']
+            WORKFLOW_ARN=os.environ['A2I_WORKFLOW_ARN']
+
+            #Reference to external service
+            dynamodb = boto3.resource('dynamodb')
+            inventory_table = dynamodb.Table(INVENTORY_TABLE)
+            textract=boto3.client('textract')
+            a2i=boto3.client("sagemaker-a2i-runtime")
+
+
+            def compute_similarity(inputDataOCR, inputDataUser):
+                similarities=[]
+                for key in inputDataUser.keys():
+                    sm=SequenceMatcher(None, inputDataOCR[key], inputDataUser[key])
+                    similarities.append (sm.ratio())
+
+                return (min(similarities))
+
+
+            def update_inventory(inputDataUser):
+                logger.debug ("Update Inventory")
+                inventory_table.put_item (
+                    Item={
+                        'key':f"{inputDataUser['Manufacturer']}--{inputDataUser['Model']}--{inputDataUser['SerialN']}",
+                        'data':inputDataUser
+                        }
+                    )
+
+                return
+
+            def get_uuid():
+                return str(uuid.uuid4())
+
+            def sort_matches(matches):
+                matches.sort(key=lambda x: x['Similarity'], reverse=True)
+                return matches
+
+            def get_matches (response, target):
+                matches=[]
+                for block in response['Blocks']:
+                    if block['BlockType'] == 'LINE':
+                        sm=SequenceMatcher(None, block['Text'], target)
+                        if sm.ratio()> 0.3:
+                            matches.append({
+                                'block':block,
+                                'Similarity':sm.ratio()})
+
+                return sort_matches(matches)
+
+            def buid_key_name_block(key_name):
+                new_name_block={
+                    "blockType": "WORD",
+                    "id": get_uuid(),
+                    "text":key_name,
+                }
+                return (new_name_block)
+
+            def buid_key_value_block(key_value):
+                new_name_block={
+                    "blockType": "WORD",
+                    "id": get_uuid(),
+                    "text":key_value,
+                }
+                return (new_name_block)
+
+            def buid_key_value_value_block( value_block, geom_value_block):
+                new_key_value_block={
+                    "blockType": "KEY_VALUE_SET",
+                    "entityTypes": ["VALUE"],
+                    "geometry":  { "polygon": [{"x":geom_value_block["Geometry"]['Polygon'][0]['X'],"y":geom_value_block["Geometry"]['Polygon'][0]['Y']},
+                                               {"x":geom_value_block["Geometry"]['Polygon'][1]['X'],"y":geom_value_block["Geometry"]['Polygon'][1]['Y']},
+                                               {"x":geom_value_block["Geometry"]['Polygon'][2]['X'],"y":geom_value_block["Geometry"]['Polygon'][2]['Y']},
+                                               {"x":geom_value_block["Geometry"]['Polygon'][3]['X'],"y":geom_value_block["Geometry"]['Polygon'][3]['Y']}]},
+                    "id": get_uuid(),
+                    "relationships": [
+                        {
+                            "ids": [
+                                value_block['id']
+                            ],
+                            "type": "CHILD"
+
+                        }
+                    ]
+                }
+                return (new_key_value_block)    
+
+            def build_key_value_key_block(key_name_block,value_block):
+
+                key_value_block={
+                    "blockType": "KEY_VALUE_SET",
+                    "entityTypes": ["KEY"],
+                    "geometry": value_block['geometry'],
+                    "id": get_uuid(),
+                    "relationships": [
+                        {
+
+                            "ids": [
+                                value_block['id']
+                            ],"type": "VALUE"
+                        },
+                        {
+
+                            "ids": [
+                                key_name_block['id']
+                            ],"type": "CHILD"
+                        }
+                    ]
+                }
+                return (key_value_block)
+
+            def add_new_key_to_request (key_name, match_key_value, user_key_value, textract_response):
+                new_key_name_block=buid_key_name_block(key_name)
+                new_key_value_block=buid_key_value_block(user_key_value)
+
+                value_match=get_matches (textract_response, match_key_value)
+                if len (value_match) ==0:
+                    value_match={
+                        "Geometry":{
+                            "Polygon":[
+                                {"X":"0.0","Y":"0.0"},
+                                {"X":"0.0","Y":"0.0"},
+                                {"X":"0.0","Y":"0.0"},
+                                {"X":"0.0","Y":"0.0"}
+                            ]
+                        }
+                    }
+                else:
+                    value_match=value_match[0]['block']
+
+                new_key_value_value_block=buid_key_value_value_block(new_key_value_block,value_match )
+                new_key_value_key_block=build_key_value_key_block(new_key_name_block, new_key_value_value_block)
+
+                return ([
+                    new_key_name_block,
+                    new_key_value_block,
+                    new_key_value_value_block,
+                    new_key_value_key_block
+                ])
+
+
+
+            def submit_a2i_workflow(inputDataUser,inputDataOCR,inputImage, similarityImages):
+                #Submit the input image to textract to identify field position
+                textract_response=textract.detect_document_text(
+                    Document={
+                        'S3Object': {
+                            "Bucket":inputImage.split("/")[2],
+                            "Name":"/".join(inputImage.split("/")[3:])
+                        }
+                    }
+                    )   
+                #Add information about user modified field values linking to corresponding position within
+                #original strings included in the output of textract
+                logger.debug ("Textract Response")
+                logger.debug (textract_response)
+                a2i_request_parameters=[]
+                for key in inputDataUser.keys():
+                    a2i_request_parameters=a2i_request_parameters+add_new_key_to_request (key,inputDataOCR[key],inputDataUser[key],textract_response)
+
+                a2i_request_parameters=a2i_request_parameters+add_new_key_to_request ('Add To Knwoledge Base', 'No', 'No', textract_response)
+
+
+                logger.debug ("A2I Request Parameters")
+                logger.debug (a2i_request_parameters)
+
+
+                humanLoopName = str(uuid.uuid4())
+                l=len(similarityImages)
+                for i in range (0,2-l):
+                    similarityImages.append("s3://default-bucket/blank")
+
+                start_loop_response = a2i.start_human_loop(
+                            HumanLoopName=humanLoopName,
+                            FlowDefinitionArn=WORKFLOW_ARN,
+                            HumanLoopInput={
+                                "InputContent": json.dumps(
+                                    {
+                                        "aiServiceRequest":{
+                                            "document":{
+                                                "s3Object":{
+                                                    "bucket": inputImage.split("/")[2],
+                                                    "name": "/".join(inputImage.split("/")[3:]),
+                                                    "sample1Name": "/".join(similarityImages[0].split("/")[3:]),
+                                                    "sample2Name": "/".join(similarityImages[1].split("/")[3:]),
+                                                }
+                                            }
+
+                                        },
+                                        "aiServiceResponse":{
+                                            "blocks": a2i_request_parameters
+
+                                        },
+                                        "selectedAiServiceResponse":{
+                                            "blocks": a2i_request_parameters
+
+                                        },
+                                       "humanLoopContext":{ 
+                                           "importantFormKeys":[]
+                                       }
+                                    }
+                                )
+                            }
+                        )  
+                return 
+
+            def lambda_handler(event, context):
+                
+                event=json.loads(event)
+                
+                inputDataOCR=event['OCR']
+                inputDataUser=event['UserFeedback']
+                similarityImages=event['SimilarityImages']
+                inputImage=event['InputImage']
+
+                similarity=compute_similarity(inputDataOCR,inputDataUser)
+
+                if similarity < THRESHOLD:
+                    submit_a2i_workflow(inputDataUser,inputDataOCR, inputImage, similarityImages )
+                else:
+                    update_inventory(inputDataUser)
+
+                return {
+                    'statusCode': 200,
+                    'body': json.dumps('OK')
+                }
+
+      Runtime: 'python3.9'
+      Timeout: 30
+      MemorySize: 128
+
+  LambdaBedrockProcessImage:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-bedrock-process-image
+      Handler: 'index.lambda_handler'
+      Role: !GetAtt A2IApplicationLambda.Arn
+      Environment: 
+        Variables: 
+          KB_DATABASE: !Sub s3://${S3Bucket}/KB_DATABASE.pkl
+          LLM_MODEL_ID: anthropic.claude-3-sonnet-20240229-v1:0
+      Code:
+        ZipFile: |
+            import json
+            import boto3
+            import os
+            import io
+            import faiss
+            import pickle as pkl
+            import numpy as np
+            from PIL import Image
+            from io import BytesIO
+            import base64
+            import logging
+            from botocore.exceptions import ClientError
+
+            logger = logging.getLogger()
+            logger.setLevel(logging.INFO)
+
+            s3 = boto3.client('s3')
+            bedrock_runtime = boto3.client("bedrock-runtime")
+            lambda_client = boto3.client('lambda')
+
+            faiss_index = os.environ.get('KB_DATABASE')
+            model_id = os.environ.get('LLM_MODEL_ID')
+            embeddings_model_id = "amazon.titan-embed-image-v1"
+
+            def read_file (filename):
+                s3 = boto3.resource('s3')
+                bucket_name=filename[5:].split("/")[0]
+                key="/".join(filename[5:].split("/")[1:])
+                obj = s3.Object(bucket_name, key)
+                body = obj.get()['Body'].read()
+                bytes_io=io.BytesIO(body)
+                return bytes_io
+
+            def write_file (filename, buffer, prefix = ""):
+                s3 = boto3.resource('s3')
+                bucket_name=filename[5:].split("/")[0]
+                key="/".join(filename[5:].split("/")[1:])
+                new_key=prefix + key
+                s3.Object(bucket_name, new_key).put(Body=buffer) 
+                return f's3://{bucket_name}/{new_key}'
+
+            def get_s3_object_creation_date(filename):
+                bucket=filename.split('/')[2]
+                key='/'.join(filename.split('/')[3:])
+                try:
+                    response = s3.head_object(Bucket=bucket, Key=key)
+                    return response['LastModified']
+                except ClientError as e:
+                    logger.info(f"Exception in get_s3_object_creation_date for {filename}: {json.dumps(e.response)}")
+                    if e.response['Error']['Code'] == "404" or e.response['Error']['Code'] == 'NoSuchKey':
+                        return None
+                    else:
+                        raise e
+                
+            class TITAN_FAISS_EMBEDDINGS:
+                def __init__(self, embeddings_model="amazon.titan-embed-image-v1",filename=None, embedding_length=1024):
+                    logger.info("Init FAISS index")
+                    
+                    if filename!=None:
+                        self.last_modified = get_s3_object_creation_date(filename)
+                        local=pkl.load(read_file(filename))
+                        self.index=local.index
+                        self.metadata=local.metadata
+                    else:
+                        self.index=faiss.IndexFlatL2(embedding_length)
+                        self.metadata=[]
+                        self.last_modified = None
+                        
+                    self.embedding_length = embedding_length
+                    self.embeddings_model = embeddings_model
+                
+                def get_last_modified(self):
+                    return self.last_modified
+                
+                def refresh_index(self, filename):
+                    logger.info("Refresh FAISS index")
+                    if filename!=None:
+                        self.last_modified = get_s3_object_creation_date(filename)
+                        local=pkl.load(read_file(filename))
+                        self.index=local.index
+                        self.metadata=local.metadata
+                    else:
+                        self.index=faiss.IndexFlatL2(self.embedding_length)
+                        self.metadata=[]
+                        self.last_modified = None
+                    
+                def save (self, filename):
+                    write_file (filename, pkl.dumps(self))
+                            
+                def get_embedding(self,image_path):
+                    
+                    encoded_image = process_image(image_path,"standard")
+                    body = json.dumps(
+                        {
+                        "inputImage": encoded_image
+                        }
+                    )
+                  
+                    bedrock_runtime=boto3.client("bedrock-runtime")
+                    
+                    response = bedrock_runtime.invoke_model(
+                        body=body, 
+                        modelId= self.embeddings_model, 
+                        accept="application/json", 
+                        contentType="application/json"       
+                    )
+
+                    vector_json = json.loads(response['body'].read().decode('utf8'))
+                    
+                    return (vector_json ['embedding'] )
+                    
+                def add(self,filename, metadata):
+                    embedding=np.array([self.get_embedding(filename)])
+                    self.index.add (embedding)
+                    self.metadata.append (metadata)
+                    
+                def search(self,embedding,k=2):
+                    distances,ids=self.index.search(np.array([embedding]),k)
+                    ret_metadata=[]
+                    for id in ids[0]:
+                        if (id>=0):
+                            ret_metadata.append (self.metadata[id])
+                    return ret_metadata
+
+            def s3_file_exists(filename):
+                bucket=filename[5:].split("/")[0]
+                key="/".join( filename[5:].split("/")[1:] )
+                logger.info(f"S3 Check if file exists bucket:{bucket} key:{key}")
+                try:
+                    s3.head_object(Bucket=bucket, Key=key)
+                    logger.info(f"file {filename} exists")
+                    return True
+                except ClientError as e:
+                    logger.info(f"Exception in s3_file_exists: {json.dumps(e.response)}")
+                    if e.response['Error']['Code'] == "404" or e.response['Error']['Code'] == 'NoSuchKey':
+                        return False
+                    else:
+                        raise e
+                    
+            if "s3://"== faiss_index[0:5]:
+                # check if file index exists
+                if s3_file_exists(faiss_index):
+                    F = TITAN_FAISS_EMBEDDINGS(embeddings_model_id, faiss_index)
+                else:
+                    F = TITAN_FAISS_EMBEDDINGS(embeddings_model_id)
+            else:
+                raise Exception('The index file name is not correct: it must be a S3 URI')
+
+            def build_prompt(encoded_image, list_of_examples, list_of_answers):
+                try:
+                    if len(list_of_examples) == 0:
+                        body =  json.dumps(
+                        {
+                            "anthropic_version": "bedrock-2023-05-31",
+                            "max_tokens": 1000,
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "type": "text",
+                                            "text": "target_image:",
+                                        },                    
+                                        {
+                                            "type": "image",
+                                            "source": {
+                                                "type": "base64",
+                                                "media_type": "image/jpeg",
+                                                "data": encoded_image,
+                                            },
+                                        },                    
+                                        {"type": "text", "text": f"""
+                                        answer the question using the following examples as reference.
+                                        if you find in the target_image more than one field containing valid information for Manufacturer.
+                                        if you find in the target_image more than one field containing valid information for Model.
+                                        if Model is a field composed by two subfields separated but the '-' character-
+                                        describe how you selected which of the provided examples is more meaningful to answer the question in <image_selection></image_selection> tag.
+                                        describe how you identified the target values enclosing this part of the answer in the <reasoning></reasoning>. 
+                                        
+                                        
+                                        <question>
+                                        analyze target_image and answer with a json file with the following information: Model, SerialN, Manufacturer.
+                                        answer only with json.
+                                        put your answer between <answer> and </answer>
+                                        </question>
+                                        Answer:
+                                        """},
+                                        
+                                    ],
+                                },
+                            
+                            ],
+                        })
+                    else:
+                        content_p = []
+                        examples = "<examples>"
+                        # 3 samples are added to the prompt
+                        ord_labels = ["first","second","third"]
+                        for i in list_of_examples:
+                            index_i = list_of_examples.index(i)
+                            ii = ord_labels[index_i]
+                            label_i = f"{ii}_sample_image"
+                            content_p += [{
+                                            "type": "text",
+                                            "text": f"{label_i}:",
+                                        },                    
+                                        {
+                                            "type": "image",
+                                            "source": {
+                                                "type": "base64",
+                                                "media_type": "image/jpeg",
+                                                "data": i,
+                                            },
+                                        }]
+                            examples += f'''
+                                        <example>
+                                        analyze {label_i} and answer with a json file with the following information: Model, SerialN, Manufacturer.
+                                        answer only with json.
+                                        
+                                        Answer:
+                                        {list_of_answers[index_i]}
+                                        </example>
+                            '''
+                        examples += "</examples>"
+                        content_p += [{
+                                            "type": "text",
+                                            "text": "target_image:",
+                                        },                    
+                                        {
+                                            "type": "image",
+                                            "source": {
+                                                "type": "base64",
+                                                "media_type": "image/jpeg",
+                                                "data": encoded_image,
+                                            },
+                                        }]
+
+                        prompt = {"type": "text", "text": f"""
+                                        answer the question using the following examples as reference.
+                                        match exactly the same set of fields and information as in the provided example.
+                                        answer using information at the position of the information in the example.
+                                        if you find in the target_image more than one field containing valid information for Manufacturer, refer to the same information highlighted in the example.
+                                        if you find in the target_image more than one field containing valid information for Model, refer to the same information highlighted in the example.
+                                        if Model is a field composed by two subfields separated but the '-' character, consider in the response only the subfield highlighted in the example.
+                                        describe how you selected which of the provided examples is more meaningful to answer the question in <image_selection></image_selection> tag.
+                                        describe how you identified the target values enclosing this part of the answer in the <reasoning><reasoning>. 
+                                        {examples}
+                                        
+                                        <question>
+                                        analyze target_image and answer with a json file with the following information: Model, SerialN, Manufacturer.
+                                        answer only with json.
+                                        put your answer between <answer> and </answer>
+                                        
+                                        </question>
+                                        Answer:
+                                        """}
+                        
+                        content_p.append(prompt)
+                        
+                        body = json.dumps(
+                        {
+                            "anthropic_version": "bedrock-2023-05-31",
+                            "max_tokens": 1000,
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": content_p
+                                }
+                            ]
+                        })
+                        
+                    return body
+                except Exception as err:
+                    logger.info(err)
+                    raise err
+
+            def process_image(image_path,res = "default"):
+                image = Image.open(read_file(image_path))
+                resized_image = resize_for_claude(image, res)
+                output = BytesIO()
+                resized_image.save(output,format='JPEG')
+                output.seek(0)
+                input_image = base64.b64encode(output.read()).decode("utf-8")
+                return input_image
+
+            def resize_for_claude (img, res="auto"):
+                #Claude v3 image resolution
+                if res == "auto":
+                    resolutions=[(1092,1092),(915,1268),(896,1344),(819,1436), (784,1568)]
+
+                    x, y = img.size
+                    ratio=y/x
+
+                    for res in resolutions:
+                        yres,xres=res
+                        ratio_res=yres/xres
+
+                        if ratio >= ratio_res:
+                            break
+                          
+                    Ry=y/yres
+                    Rx=x/xres
+                    if (Rx < Ry):
+                        Y=int(y/Rx)
+                        X=int(x/Rx)
+                    else:
+                        Y=int(y/Ry)
+                        X=int(x/Ry)                
+                  
+                    out = img.resize( (X, Y), Image.Resampling.LANCZOS)
+                else:
+                    out = img.resize( (2048, 2048), Image.Resampling.LANCZOS)
+                return out
+
+            def lambda_handler(event, context):
+                event=json.loads(event)
+                try:
+                    
+                    # check if faiss index name is a S3 URI
+                    loaded_last_modified = F.get_last_modified()
+                    if s3_file_exists(faiss_index):
+                        last_modified = get_s3_object_creation_date(faiss_index)
+                        filename = faiss_index
+                    else:
+                        last_modified = None
+                        filename = None
+                    
+                    if last_modified != loaded_last_modified:
+                        F.refresh_index(filename)
+                    
+                    # Process the Image
+                    if "assets" in event:
+                        if "images" in event["assets"]:
+                            filename = event["assets"]["images"][0]["filename"]
+                            if "s3://"==filename[0:5]:
+                                
+                                # Get the image embeddings
+                                embeddings = F.get_embedding(filename)
+                                
+                                # Search for similar embeddings  
+                                similar_images = F.search (embeddings, 2)
+                              
+                                # Get the prompt
+                                target_encoded_image = process_image(filename,res = "auto")
+                                list_of_examples = []
+                                list_of_answers = []
+                                list_of_filenames = []
+                                    
+                                for i in similar_images:
+                                    list_of_filenames.append(i["file_name"])
+                                    list_of_examples.append(process_image(i["file_name"], res = "auto"))
+                                    list_of_answers.append(i["response"])
+                                    
+                                body = build_prompt(target_encoded_image, list_of_examples, list_of_answers)
+                                
+                                # Invoke Bedrock
+                                response = bedrock_runtime.invoke_model(
+                                    body=body, 
+                                    modelId = model_id, 
+                                    accept="application/json", 
+                                    contentType="application/json"       
+                                )
+                                
+                                response_body = json.loads(response.get("body").read())
+                                response_text = response_body['content'][0]['text']
+                                ocr = response_text
+                                logger.info(f"ocr = {ocr}")
+                                if "Answer:" in ocr:
+                                    ocr = response_text.split("Answer:")[1]
+                                    
+                                if "<answer>" in ocr:
+                                    ocr = ocr.split("<answer>")[1]
+                                    ocr = ocr.split("</answer>")[0]
+                                
+                                resp = {
+                                    "OCR": json.loads(ocr.replace("'", '"')),
+                                    "SimilarityImages": list_of_filenames 
+                                }
+                                logger.info(f"Final response={json.dumps(resp)}")
+                                
+                                return {"response": resp}
+                    
+                            else:
+                                raise Exception('The image file name is not correct')
+                        else:
+                            return {"statusCode":200, "response": {"OCR": {},"SimilarityImages":{}}}
+                    
+                except Exception as err:
+                    logger.info(f"{err}")
+                    return {"statusCode": 500, "response": f"{err}"}
+
+
+      Runtime: 'python3.9'
+      Layers: 
+        - !Ref LambdaLayerARN      
+      Timeout: 43
+      MemorySize: 256
+  
+  LambdaUpdateKB:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-update-kb
+      Handler: 'index.lambda_handler'
+      Role: !GetAtt A2IApplicationLambda.Arn
+      Environment: 
+        Variables: 
+          KB_DATABASE: !Sub s3://${S3Bucket}/KB_DATABASE.pkl
+      Code:
+        ZipFile: |
+            import json
+            from PIL import Image
+            from io import BytesIO
+            import boto3
+            import logging
+            import os
+            import faiss
+            import base64
+            import numpy as np
+            import pickle as pkl
+
+            logger = logging.getLogger()
+            logger.setLevel(logging.DEBUG)
+
+
+            sqs = boto3.client('sqs')
+            bedrock=boto3.client('bedrock-runtime')
+            s3 = boto3.client('s3')
+
+            kb_database=os.environ['KB_DATABASE']
+
+            def read_file ( filename):
+                if "s3://"==filename[0:5]:
+                    s3 = boto3.resource('s3')
+                    bucket_name=filename[5:].split("/")[0]
+                    key="/".join(filename[5:].split("/")[1:])
+                    obj = s3.Object(bucket_name, key)
+                    body = obj.get()['Body'].read()
+                else:
+                    with open (filename,"rb") as f:
+                        body=f.read()
+
+                bytes_io=BytesIO(body)
+                return bytes_io
+
+            def write_file (filename, buffer):
+                logger.debug(f"Writing to {filename}")
+                s3 = boto3.resource('s3')
+                bucket_name=filename[5:].split("/")[0]
+                key="/".join( filename[5:].split("/")[1:] )
+
+                s3.Object(bucket_name, key).put(Body=buffer) 
+
+            def s3_file_exists(filename):
+                bucket=filename[5:].split("/")[0]
+                key="/".join( filename[5:].split("/")[1:] )
+                logger.debug(f"S3 Check if file exists bucket:{bucket} key:{key}")
+                try:
+                    s3.head_object(Bucket=bucket, Key=key)
+                    return True
+                except s3.exceptions.ClientError as e:
+                    if e.response['Error']['Code'] == '404':
+                        return False
+                    else:
+                        raise
+
+            class TITAN_FAISS_EMBEDDINGS:
+
+                def __init__(self, embeddings_model="amazon.titan-embed-image-v1",filename=None, embedding_length=1024):
+                    if filename!=None:
+                        local=pkl.load(read_file(filename))
+                        self.index=local.index
+                        self.metadata=local.metadata
+                    else:
+                        self.index=faiss.IndexFlatL2(embedding_length)
+                        self.metadata=[]
+
+                    self.embeddings_model = embeddings_model
+
+                def save (self, filename):
+                    # self.runtime=None
+                    logger.debug(f"saving database to {filename}")
+                    write_file (filename, pkl.dumps(self))
+
+                def get_embedding(self, image_path):
+                    image = Image.open(read_file(image_path))
+                    # Resize the image to 1024x1024 maximum supported image resolution is 2048x 2048
+                    resized_image = image.resize( (2048, 2048), Image.Resampling.LANCZOS)
+
+                    output = BytesIO()
+                    resized_image.save(output,format='JPEG')
+                    output.seek(0)
+
+                    body = json.dumps(
+                        {
+                            "inputImage": base64.b64encode(output.read()).decode("utf-8"),
+                        }
+                    )
+
+                    response = bedrock.invoke_model(
+                        body=body, 
+                        modelId="amazon.titan-embed-image-v1", 
+                        accept="application/json", 
+                        contentType="application/json"       
+                    )
+
+                    vector_json = json.loads(response['body'].read().decode('utf8'))
+                    return vector_json ['embedding']        
+
+                def add(self,filename, metadata):
+                    embedding=np.array([self.get_embedding(filename)])
+                    self.index.add (embedding)
+                    self.metadata.append (metadata)
+
+
+                def search(self,embedding,k):
+                    distances,ids=self.index.search(np.array([embedding]),k)
+                    ret_metadata=[]
+                    for id in ids[0]:
+                        if (id>=0):
+                            ret_metadata.append (self.metadata[id])
+
+                    return ret_metadata
+
+
+
+            def lambda_handler(event, context):
+                # Verify if database existis
+                logger.debug("Loading KB")
+
+                if s3_file_exists(kb_database)==True :
+                    kb=TITAN_FAISS_EMBEDDINGS (filename=kb_database)
+                else:
+                    kb=TITAN_FAISS_EMBEDDINGS()
+                for record in event['Records']:
+                    logger.debug (f"Record:{record}")
+                    data=json.loads (record["body"])
+                    logger.debug (f"Data: {data}")
+
+                    image=data['file_name']
+                    kb.add (image,data)
+
+                kb.save(kb_database)
+                return {
+                    'statusCode': 200,
+                    'body': json.dumps("Successfully Completed.")
+                }
+
+      Runtime: 'python3.9'
+      Layers: 
+        - !Ref LambdaLayerARN
+      Timeout: 30
+      MemorySize: 256
+      
+  A2IApplicationLambda:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: "/"
+      RoleName: !Sub ${AWS::StackName}-a2i-application-lambda-role
+      AssumeRolePolicyDocument: !Sub |
+        {
+            "Version":"2012-10-17",
+            "Statement":[
+                {"Effect":"Allow",
+                 "Principal":{"Service":"lambda.amazonaws.com"},
+                 "Action":"sts:AssumeRole"
+                 }
+                 ]        
+        }
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-a2i-application-lambda-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 
+                - 'logs:CreateLogGroup'
+                - 'logs:CreateLogStream'
+                - 'logs:PutLogEvents'
+                Resource: 'arn:aws:logs:*:*:*'
+              - Effect: Allow
+                Action: 
+                - s3:ListBucket
+                - s3:PutObject
+                - s3:GetObject
+                Resource: 
+                - !GetAtt S3Bucket.Arn
+                - !Sub ${S3Bucket.Arn}/*
+              - Effect: Allow
+                Action: 
+                - 'dynamodb:PutItem'
+                - 'dynamodb:GetItem'
+                - 'dynamodb:UpdateItem'
+                Resource: 
+                - !GetAtt DynamoDBInventoryTable.Arn
+              - Effect: Allow
+                Action: 
+                - 'sqs:SendMessage'
+                - 'sqs:ReceiveMessage'
+                - 'sqs:DeleteMessage'
+                - 'sqs:GetQueueAttributes' 
+                Resource: 
+                - !GetAtt SQSQueue.Arn    
+              - Effect: Allow
+                Action: 
+                - 'sagemaker:StartHumanLoop'
+                Resource: 
+                - !Ref A2IUI             
+              - Effect: Allow
+                Action: 
+                - 'textract:DetectDocumentText'
+                - 'bedrock:InvokeModel'
+                Resource: '*' 
+              
+             
+      Description: Allows Lambda log and call anything   
+      
+  ApiGatewayRestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub ${AWS::StackName}-api
+      ApiKeySourceType: HEADER
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  ApiGatewayValidateDataResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      PathPart: validate-data
+      ParentId: !GetAtt ApiGatewayRestApi.RootResourceId
+
+  ApiGatewayMethodOPTIONSValidateDataResource:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      ResourceId: !Ref ApiGatewayValidateDataResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      ApiKeyRequired: false
+      RequestParameters: {}
+      MethodResponses:
+        - ResponseModels:
+            application/json: Empty
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+            method.response.header.Access-Control-Allow-Origin: false
+          StatusCode: '200'
+      Integration:
+        CacheNamespace: !Ref ApiGatewayValidateDataResource
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: '''Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'''
+              method.response.header.Access-Control-Allow-Methods: '''OPTIONS,POST'''
+              method.response.header.Access-Control-Allow-Origin: '''*'''
+            ResponseTemplates: {}
+            StatusCode: '200'
+        PassthroughBehavior: WHEN_NO_MATCH
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        TimeoutInMillis: 29000
+        Type: MOCK
+
+  ApiGatewayMethodPOSTValidateDataResource:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      ResourceId: !Ref ApiGatewayValidateDataResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      ApiKeyRequired: false
+      RequestParameters: {}
+      MethodResponses:
+        - ResponseModels:
+            application/json: Empty
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: false
+          StatusCode: '200'
+      Integration:
+        CacheNamespace: !Ref ApiGatewayValidateDataResource
+        Credentials: !GetAtt APIGWCallLambdaRole.Arn
+        IntegrationHttpMethod: POST
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: '''*'''
+            ResponseTemplates: {}
+            StatusCode: '200'
+        PassthroughBehavior: WHEN_NO_MATCH
+        TimeoutInMillis: 29000
+        Type: AWS
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaValidateInputData.Arn}/invocations
+
+  ApiGatewayBedrockProcessImageResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      PathPart: bedrock-process-image
+      ParentId: !GetAtt ApiGatewayRestApi.RootResourceId
+
+  ApiGatewayMethodOPTIONSBedrockProcessImage:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      ResourceId: !Ref ApiGatewayBedrockProcessImageResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      ApiKeyRequired: false
+      RequestParameters: {}
+      MethodResponses:
+        - ResponseModels:
+            application/json: Empty
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+            method.response.header.Access-Control-Allow-Origin: false
+          StatusCode: '200'
+      Integration:
+        CacheNamespace: !Ref ApiGatewayBedrockProcessImageResource
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: '''Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'''
+              method.response.header.Access-Control-Allow-Methods: '''OPTIONS,POST'''
+              method.response.header.Access-Control-Allow-Origin: '''*'''
+            ResponseTemplates: {}
+            StatusCode: '200'
+        PassthroughBehavior: WHEN_NO_MATCH
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        TimeoutInMillis: 29000
+        Type: MOCK
+
+  ApiGatewayMethodPOSTBedrockProcessImage:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      ResourceId: !Ref ApiGatewayBedrockProcessImageResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      ApiKeyRequired: false
+      RequestParameters: {}
+      MethodResponses:
+        - ResponseModels:
+            application/json: Empty
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: false
+          StatusCode: '200'
+      Integration:
+        CacheNamespace: !Ref ApiGatewayBedrockProcessImageResource
+        Credentials: !GetAtt APIGWCallLambdaRole.Arn
+        IntegrationHttpMethod: POST
+        IntegrationResponses:
+          - ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: '''*'''
+            ResponseTemplates: {}
+            StatusCode: '200'
+        PassthroughBehavior: WHEN_NO_MATCH
+        TimeoutInMillis: 29000
+        Type: AWS
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaBedrockProcessImage.Arn}/invocations
+        
+  ApiGwDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: 
+      - ApiGatewayMethodPOSTValidateDataResource
+      - ApiGatewayMethodPOSTBedrockProcessImage
+    Properties:
+      Description: Dev Endpoint to submit user app requests
+      RestApiId: !Ref ApiGatewayRestApi
+      StageName: dev
+
+
+  IAMPolicyAPIGW:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyDocument: !Sub |
+        {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": "lambda:InvokeFunction",
+                    "Resource": ["${LambdaValidateInputData.Arn}",  "${LambdaBedrockProcessImage.Arn}" ]
+                }
+            ]
+        }
+      Roles:
+        - !Ref APIGWCallLambdaRole
+      PolicyName: call-lambda
+  
+  APIGWCallLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      RoleName: !Join
+        - '-'
+        - - APIGWCallLambda
+          - !Ref AWS::StackName
+      AssumeRolePolicyDocument: '{"Version":"2012-10-17","Statement":[{"Sid":"","Effect":"Allow","Principal":{"Service":"apigateway.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
+      MaxSessionDuration: 3600
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
+      Description: Allows API Gateway to push logs to CloudWatch Logs and call Lambda      
+
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub asset-inventory-${AWS::StackName}
+      AutoVerifiedAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: false
+          RequireNumbers: false
+          RequireSymbols: false
+          RequireUppercase: false
+      Schema:
+        - Mutable: true
+          Name: email
+          Required: true
+      UsernameConfiguration:
+        CaseSensitive: false
+        
+  UserPoolClientWeb:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: asset_inventory_client_app
+      RefreshTokenValidity: 15
+    DependsOn:
+      - UserPool
+      
+  IdentityPool:
+    Type: AWS::Cognito::IdentityPool
+    Properties:
+      IdentityPoolName: !Sub asset_inventory-${AWS::StackName}
+      AllowUnauthenticatedIdentities: true
+      CognitoIdentityProviders:
+        - ClientId: !Ref UserPoolClientWeb
+          ProviderName: !Sub
+            - cognito-idp.${region}.amazonaws.com/${client}
+            - region: !Ref AWS::Region
+              client: !Ref UserPool
+              
+  IdentityPoolRoleMap:
+    Type: AWS::Cognito::IdentityPoolRoleAttachment
+    Properties:
+      IdentityPoolId: !Ref IdentityPool
+      Roles:
+        unauthenticated: !GetAtt CognitoRole.Arn
+        authenticated: !GetAtt CognitoRole.Arn
+    DependsOn:
+      - IdentityPool
+
+
+  CognitoRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      RoleName: !Join
+        - '-'
+        - - asset-inventory-cognito-
+          - !Ref AWS::StackName
+      AssumeRolePolicyDocument: !Sub |
+        {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {
+                        "Federated": "cognito-identity.amazonaws.com"
+                    },
+                    "Action": "sts:AssumeRoleWithWebIdentity",
+                    "Condition": {
+                        "StringEquals": {
+                            "cognito-identity.amazonaws.com:aud": "${IdentityPool}"
+                        }
+                    }
+                }
+            ]
+        }
+      MaxSessionDuration: 3600
+      Policies:
+        - PolicyName: execute-api
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: "execute-api:Invoke"
+                Resource: '*'
+              - Effect: Allow
+                Action: 
+                - s3:ListBucket
+                - s3:PutObject
+                - s3:GetObject
+                Resource: 
+                - !GetAtt S3Bucket.Arn
+                - !Sub ${S3Bucket.Arn}/*
+      Description: Allows Cognito to call API GW
+
+Outputs:
+  A2IUI:
+    Description: 'A2I UI'
+    Value: !Ref A2IUI
+    
+  S3Bucket:
+    Description: 'S3 Bucket'
+    Value: !Ref S3Bucket
+
+  IdentityPoolId:
+    Description: Id for the identity pool
+    Value: !Ref IdentityPool
+  
+  UserPoolId:
+    Description: Id for the user pool
+    Value: !Ref UserPool
+
+  AppClientIDWeb:
+    Description: The user pool app client id for web
+    Value: !Ref UserPoolClientWeb
+
+  APIUri:
+    Description: API URL
+    Value: !Join
+      - ''
+      - - https://
+        - !Ref ApiGatewayRestApi
+        - .execute-api.
+        - !Ref AWS::Region
+        - .amazonaws.com/dev

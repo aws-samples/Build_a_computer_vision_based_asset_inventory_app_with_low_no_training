@@ -1,0 +1,50 @@
+#capturePhotoButton {
+  outline: none;
+  position: absolute;
+  color: white;
+  display: block;
+  opacity: 1;
+  background: transparent;
+  border: solid 2px #fff;
+  padding: 0;
+  text-shadow: 0px 0px 4px black;
+  background-position: center center;
+  background-repeat: no-repeat;
+  pointer-events: auto;
+  z-index: 2;
+}
+
+#capturePhotoButton {
+  top: 85%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 80px;
+  height: 80px;
+  background-image: url("ic_photo_camera_white_48px.svg");
+  border-radius: 50%;
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+#capturePhotoButton:active {
+  background-color: #fff;
+}
+
+.form-container {
+  width: 300px;
+  padding: 20px;
+}
+
+.camera-container {
+  position: relative;
+  border: 2px solid #ccc;
+  width: 700px;
+}
+
+.tablet .content {
+  width: 995px;
+  height: 645px;
+}
+
+.tablet {
+  margin-top: 10px;
+}
