@@ -49,8 +49,7 @@ inventory database. 
 
 Let's take a detailed look at the solution architecture below. 
 
-![](media/image1.png){width="5.853210848643919in"
-height="2.633027121609799in"}
+![](media/image1.png)
 
 **Figure 1: Solution architecture overview**
 
@@ -178,8 +177,7 @@ process and understand relationships within complex data, leading to
 improved performance on various tasks like natural language processing
 and computer vision.
 
-![](media/image2.png){width="5.853210848643919in"
-height="4.055044838145232in"}
+![](media/image2.png)
 
 The vector embeddings are generated using Amazon Titan, a powerful
 embedding generation service, which converts the labeled examples into
@@ -375,8 +373,7 @@ following the automated registration workflow implemented through Amazon
 Cognito and clicking on "Create Account", as shown in the following
 image.
 
-![](media/image3.png){width="5.5963298337707785in"
-height="5.6422014435695536in"}
+![](media/image3.png)
 
 During the registration process, you must provide a valid email address
 that will be used in order to verify your identity, and define a
@@ -385,8 +382,7 @@ password. Once registered you can now log in with your credentials.
 After authentication is complete, the application appears on your
 screen, as shown in the following image.
 
-![](media/image4.png){width="5.853210848643919in"
-height="4.376146106736658in"}
+![](media/image4.png)
 
 The process to use the application is the following:
 
@@ -503,8 +499,7 @@ while **encoded_image** contains the new image that has to be analyzed.
   final values validated by the field operators are sent to the
   **Backend Review** service.
 
-![](media/image5.png){width="5.853210848643919in"
-height="4.394494750656168in"}
+![](media/image5.png)
 
 #### 4. Backend Review
 
@@ -523,8 +518,7 @@ has done and, if it's found that this type of label is not included in
 the knowledge base, can decide to add it by entering Yes in the "Add to
 Knowledge Base".
 
-![](media/image6.png){width="5.853210848643919in"
-height="3.311925853018373in"}
+![](media/image6.png)
 
 When the A2I process is completed, a Lambda function is triggered. This
 Lambda function stores the information in the Inventory Database and
@@ -601,14 +595,12 @@ models button like in the following image.
 
 - Amazon Titan models 
 
-![](media/image7.png){width="5.844036526684165in"
-height="2.577981189851269in"}
+![](media/image7.png)
 
 Select all Anthropic and Amazon models as in the following screenshot
 and click **Next** at the bottom of the page:
 
-![](media/image8.png){width="5.853210848643919in"
-height="2.8348622047244096in"}
+![](media/image8.png)
 
 A new window will list the requested models. Check that the Amazon Titan
 models and Anthropic Claude models are in this list and click the
@@ -625,20 +617,17 @@ Log into the Amazon Sagemaker console using this
 In the left panel, select Ground Truth and Labelling workforce like in
 the following picture:
 
-![](media/image9.png){width="5.853210848643919in"
-height="2.8623851706036745in"}
+![](media/image9.png)
 
 Select Private tab and Create private team like in the picture below:
 
-![](media/image10.png){width="5.853210848643919in"
-height="2.3486231408573928in"}
+![](media/image10.png)
 
 Provide a name to the team and your organization, insert your email
 address (must be a valid one) for both Email addresses and in Contact
 email. Leave all the other options as default.
 
-![](media/image11.png){width="5.853210848643919in"
-height="6.339448818897638in"}
+![](media/image11.png)
 
 Click Create Private team at the bottom of the page.
 
@@ -647,8 +636,7 @@ this [link](https://console.aws.amazon.com/sagemaker/groundtruth?#/labeling-wor
 and selecting Private tab and save for later use, as shown in the
 following picture.
 
-![](media/image12.png){width="5.853210848643919in"
-height="2.8715594925634296in"}
+![](media/image12.png)
 
 Lastly, build an Amazon Lambda layer that includes two Python libraries.
 To build this layer, connect to your development environment and issue
@@ -661,8 +649,7 @@ bash build_lambda_layer.sh
 
 You should get an output similar to the following screenshot:
 
-![](media/image13.png){width="5.853210848643919in"
-height="2.5045866141732285in"}
+![](media/image13.png)
 
 Save the LAMBDA_LAYER_VERSION_ARN for later use.
 
@@ -713,8 +700,8 @@ using this
 [link](https://us-east-1.console.aws.amazon.com/cloudformation).\
  
 
-![](media/image14.png){width="5.852083333333334in"
-height="2.3444444444444446in"}This will open a new window in your
+![](media/image14.png)
+This will open a new window in your
 browser similar to the following picture
 
 Click on **Create stack**. In the next form, select **Upload a template
@@ -734,11 +721,11 @@ Select **Next** and **Next** again. In the last screen acknowledge that
 CloudFormation is going to create AWS Identity and Access Management
 (IAM) resources and then click **Submit.**
 
-![](media/image15.png){width="5.852083333333334in"
-height="2.3520833333333333in"}
+![](media/image15.png)
 
-![](media/image16.png){width="5.852083333333334in"
-height="2.0034722222222223in"}Wait until the CloudFormation stack
+
+![](media/image16.png)
+Wait until the CloudFormation stack
 creation process completes; it will take about 15 - 20 minutes. At the
 end you will see something similar to the following picture.
 
@@ -746,8 +733,8 @@ Select the **Outputs** tab to show you an image similar to the
 following. You will use the output data later on to complete the
 configuration of the frontend application.
 
-![](media/image17.png){width="5.853210848643919in"
-height="2.422017716535433in"}
+![](media/image17.png)
+
 
 #### Deploy the frontend application
 
@@ -874,8 +861,8 @@ using the
 following [link](https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1)
 and deleting the stack as shown in the picture below.
 
-![](media/image18.png){width="5.851388888888889in"
-height="1.3347222222222221in"}A pop-up window will ask you to confirm
+![](media/image18.png)
+A pop-up window will ask you to confirm
 the deletion. Click the **Delete** button in the pop-up window.
 
 At the end of the deletion process ,you should not see the entry related
