@@ -724,10 +724,11 @@ CloudFormation is going to create AWS Identity and Access Management
 ![](media/image15.png)
 
 
-![](media/image16.png)
+
 Wait until the CloudFormation stack
 creation process completes; it will take about 15 - 20 minutes. At the
 end you will see something similar to the following picture.
+![](media/image16.png)
 
 Select the **Outputs** tab to show you an image similar to the
 following. You will use the output data later on to complete the
