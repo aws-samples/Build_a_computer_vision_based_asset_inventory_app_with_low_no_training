@@ -1,4 +1,4 @@
-# Build a computer vision-based asset inventory app with low / no training
+# Build a computer vision based asset inventory app with low / no training
 
 ## Introduction
 
@@ -941,7 +941,5 @@ Before AWS, Carmela has held various roles in large IT companies, such
 as software engineer, security consultant and solutions architect. She
 has been using his experience in security, compliance and cloud
 operations to help public sector organizations in their transformation
-journey to the cloud.
-
-In her spare time, she is a passionate reader, she enjoys hiking,
+journey to the cloud. In her spare time, she is a passionate reader, she enjoys hiking,
 travelling and playing yoga.
