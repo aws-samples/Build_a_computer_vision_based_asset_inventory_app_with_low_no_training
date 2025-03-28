@@ -360,6 +360,7 @@ This component leverages on the following AWS services:
   label recognition tasks.
 
 ### Navigation Flow
+This section explains how users interact with the system and how data flows between different components of the solution. We'll examine each key component's role in the process, from initial user access through data verification and storage.
 
 #### 1. Mobile App  
 
