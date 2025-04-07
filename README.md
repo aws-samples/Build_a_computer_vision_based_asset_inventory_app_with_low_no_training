@@ -614,7 +614,7 @@ If you do not already have a private labeling workforce in your account,
 you can create one following the instructions below. 
 
 Log into the Amazon Sagemaker console using this
-[link](https://console.aws.amazon.com/sagemaker/).
+[link](https://us-east-1.console.aws.amazon.com/sagemaker/).
 
 In the left panel, select Ground Truth and Labelling workforce like in
 the following picture:
@@ -634,7 +634,7 @@ email. Leave all the other options as default.
 Click Create Private team at the bottom of the page.
 
 Once your workforce is created, copy your workforce ARN from
-this [link](https://console.aws.amazon.com/sagemaker/groundtruth?#/labeling-workforces)
+this [link](https://us-east-1.console.aws.amazon.com/sagemaker/groundtruth?#/labeling-workforces)
 and selecting Private tab and save for later use, as shown in the
 following picture.
 
@@ -644,8 +644,8 @@ Lastly, build an Amazon Lambda layer that includes two Python libraries.
 To build this layer, connect to your development environment and issue
 the following commands:
 
-git clone <https://github.com/aws-samples/Build_a_computer_vision_based_asset_inventory_app_with_low_no_training>\
-cd Build_a_computer_vision_based_asset_inventory_app_with_low_no_training\
+git clone https://github.com/aws-samples/Build_a_computer_vision_based_asset_inventory_app_with_low_no_training<nolink>
+cd Build_a_computer_vision_based_asset_inventory_app_with_low_no_training
 bash build_lambda_layer.sh
 
 You should get an output similar to the following screenshot:
