@@ -478,7 +478,8 @@ Where **first_sample_encoded_image** and **first_sample_answer** are the
 reference image and expected output respectively,
 while **encoded_image** contains the new image that has to be analyzed.
 
-#### 3. Data Verification    Once the image is processed by the AI Data Extraction Service, the control goes back to the mobile app:
+#### 3. Data Verification    
+Once the image is processed by the AI Data Extraction Service, the control goes back to the mobile app:
 
 - The mobile app receives the extracted data from the **AI Data
   Extraction Service**, which has processed the uploaded asset label
