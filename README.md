@@ -643,9 +643,8 @@ Lastly, build an Amazon Lambda layer that includes two Python libraries.
 To build this layer, connect to your development environment and issue
 the following commands:
 
-git
-clone <https://gitlab.aws.dev/dalesf/cv-asset-inventory-app-with-low-no-training-data>\
-cd cv-asset-inventory-app-with-low-no-training-data\
+git clone <https://github.com/aws-samples/Build_a_computer_vision_based_asset_inventory_app_with_low_no_training>\
+cd Build_a_computer_vision_based_asset_inventory_app_with_low_no_training\
 bash build_lambda_layer.sh
 
 You should get an output similar to the following screenshot:
@@ -694,7 +693,7 @@ following components:
   generative AI related tasks
 
  The CloudFormation template used in this step can be downloaded from
-[here](https://gitlab.aws.dev/dalesf/cv-asset-inventory-app-with-low-no-training-data/-/blob/main/cloud-formation.yaml)
+[here](https://github.com/aws-samples/Build_a_computer_vision_based_asset_inventory_app_with_low_no_training/blob/main/cloud-formation.yaml)
 
  In order to deploy the CloudFormation template, use the AWS Console
 using this
@@ -768,12 +767,12 @@ on the AWS Amplify-provided hosting service.
 
 Log into your development environment and download the client code from
 this [github
-repository](https://gitlab.aws.dev/dalesf/cv-asset-inventory-app-with-low-no-training-data)
+repository](https://github.com/aws-samples/Build_a_computer_vision_based_asset_inventory_app_with_low_no_training)
 using the following command:
 
 git clone
-<https://gitlab.aws.dev/dalesf/cv-asset-inventory-app-with-low-no-training-data>\
-cd cv-asset-inventory-app-with-low-no-training-data\
+<https://github.com/aws-samples/Build_a_computer_vision_based_asset_inventory_app_with_low_no_training>\
+cd Build_a_computer_vision_based_asset_inventory_app_with_low_no_training\
 cd webapp
 
 If you are running on Cloud9 as a development environment, issue the
