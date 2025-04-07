@@ -644,8 +644,8 @@ Lastly, build an Amazon Lambda layer that includes two Python libraries.
 To build this layer, connect to your development environment and issue
 the following commands:
 
-git clone https://github.com/aws-samples/Build_a_computer_vision_based_asset_inventory_app_with_low_no_training<nolink>
-cd Build_a_computer_vision_based_asset_inventory_app_with_low_no_training
+git clone https://github.com/aws-samples/Build_a_computer_vision_based_asset_inventory_app_with_low_no_training\
+cd Build_a_computer_vision_based_asset_inventory_app_with_low_no_training\
 bash build_lambda_layer.sh
 
 You should get an output similar to the following screenshot:
